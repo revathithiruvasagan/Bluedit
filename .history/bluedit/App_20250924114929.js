@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { NotificationProvider } from "./components/Notification";
 import LoginScreen from "./screens/Login";
 import CommunityScreen from "./screens/CommunityScreen";
-import ChatScreen from "./screens/Chat";
+import ChatScreen from "./screens/ChatScreen";
 
 const Stack = createNativeStackNavigator();
 
