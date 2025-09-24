@@ -10,8 +10,8 @@ export default function LoginScreen({ navigation }) {
   const handleLogin = async () => {
     try {
       const response = await loginUser(email, password);
-      if (true) {
-        navigation.navigate("CommunityScreen");
+      if (response.success) {
+        navigation.navigate("CommunityScreen"); // go to community list
       } else {
         Alert.alert("Login Failed", response.message);
       }
