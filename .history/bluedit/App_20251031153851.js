@@ -29,11 +29,11 @@ export default function App() {
             component={ChatScreen}
             options={{ title: "Chat Room" }}
           />
-          {/* <Stack.Screen
+          <Stack.Screen
             name="AdminRequestsScreen"
             component={AdminRequestsScreen}
             options={{ title: "Join Requests" }}
-          /> */}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </NotificationProvider>

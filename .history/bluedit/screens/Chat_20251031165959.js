@@ -1,3 +1,4 @@
+// screens/ChatScreen.js
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -11,75 +12,83 @@ import {
 } from "react-native";
 
 import {
+  joinRoom,
   sendMessage as apiSendMessage,
   getMessages,
   joinAsAdmin,
 } from "../services/api";
 
 export default function ChatScreen({ route }) {
-  const { community, username, userId, created_by } = route.params;
+  const { community, username = "Revathi", userId, created_by } = route.params; // ensure userId and community.created_by are passed
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const flatListRef = useRef(null);
 
+  // Join room and load previous messages
   useEffect(() => {
-    const initChat = async () => {
+    const init = async () => {
       try {
-        // Admin auto-join (register in DB)
+        await joinRoom(username, community.name);
+
+        // If current user is the community creator (admin), call join-as-admin to ensure membership
         if (userId && created_by && userId === created_by) {
-          await joinAsAdmin(community.id, userId);
+          await joinAsAdmin(community.id || community.name, userId, userId);
         }
 
-        const response = await getMessages(community.id);
-        setMessages(response?.messages ?? []);
+        const res = await getMessages(community.name);
+        // getMessages returns either { messages: [...] } or array depending on backend wrapper
+        const msgs = Array.isArray(res) ? res : res.messages || res.data || [];
+        setMessages(msgs);
       } catch (err) {
-        console.error("Init chat failed:", err);
+        console.error("Error initializing chat:", err);
       }
     };
-    initChat();
-  }, [community.id]);
+    init();
+  }, [community.name]);
 
+  // Poll backend for new messages every 3 seconds
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await getMessages(community.id);
-        setMessages(res?.messages ?? []);
+        const res = await getMessages(community.name);
+        const msgs = Array.isArray(res) ? res : res.messages || res.data || [];
+        setMessages(msgs);
       } catch (err) {
-        console.error("Fetch messages failed:", err);
+        console.error("Error fetching messages:", err);
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [community.id]);
+  }, [community.name]);
 
+  // Scroll to bottom whenever messages update
   useEffect(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
+  // Send message
   const sendMessage = async () => {
-    if (!message.trim()) return;
+    if (message.trim() === "") return;
 
-    const localMsg = {
+    const newMessage = {
       id: Date.now().toString(),
       text: message,
       sender: username,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toLocaleTimeString(),
     };
 
-    setMessages((prev) => [...prev, localMsg]);
-    const contentToSend = message;
+    // Update local state immediately
+    setMessages((prev) => [...prev, newMessage]);
     setMessage("");
 
+    // Send to backend
     try {
-      await apiSendMessage({
-        room: community.id,
-        user_id: userId,
-        content: contentToSend,
-      });
-
-      const res = await getMessages(community.id);
-      setMessages(res?.messages ?? []);
+      await apiSendMessage(community.name, username, message);
+      // Optionally re-fetch messages to get server-assigned ids/timestamps
+      const res = await getMessages(community.name);
+      const msgs = Array.isArray(res) ? res : res.messages || res.data || [];
+      setMessages(msgs);
     } catch (err) {
-      console.error("Send message error:", err);
+      console.error("Failed to send message:", err);
     }
   };
 
@@ -88,12 +97,12 @@ export default function ChatScreen({ route }) {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <Text style={styles.header}>{community.name}</Text>
+      <Text style={styles.header}>{community.name} </Text>
 
       <FlatList
         ref={flatListRef}
         data={messages}
-        keyExtractor={(item) => item.id?.toString()}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View
             style={[
@@ -103,9 +112,7 @@ export default function ChatScreen({ route }) {
           >
             <Text style={styles.sender}>{item.sender}</Text>
             <Text style={styles.text}>{item.text}</Text>
-            <Text style={styles.timestamp}>
-              {new Date(item.timestamp).toLocaleTimeString()}
-            </Text>
+            <Text style={styles.timestamp}>{item.timestamp}</Text>
           </View>
         )}
       />
@@ -118,7 +125,7 @@ export default function ChatScreen({ route }) {
           style={styles.input}
         />
         <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-          <Text style={{ color: "#fff", fontWeight: "bold" }}>Send</Text>
+          <Text style={{ color: "white", fontWeight: "bold" }}>Send</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -126,7 +133,11 @@ export default function ChatScreen({ route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 15, backgroundColor: "#f9f9f9" },
+  container: {
+    flex: 1,
+    padding: 15,
+    backgroundColor: "#f9f9f9",
+  },
   header: {
     fontSize: 22,
     fontWeight: "bold",
@@ -147,15 +158,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#e0e0e0",
     alignSelf: "flex-start",
   },
-  sender: { fontWeight: "bold", color: "#fff" },
-  text: { marginTop: 2, color: "#fff" },
+  sender: {
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  text: {
+    color: "#fff",
+    marginTop: 2,
+  },
   timestamp: {
     fontSize: 10,
     marginTop: 2,
-    color: "#f8f8f8",
+    color: "#ddd",
     textAlign: "right",
   },
-  inputContainer: { flexDirection: "row", alignItems: "center", marginTop: 10 },
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 10,
+  },
   input: {
     flex: 1,
     borderWidth: 1,
