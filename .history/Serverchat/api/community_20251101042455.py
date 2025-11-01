@@ -318,7 +318,7 @@ def join_request(community_id):
             .execute()
 
         if member_check.data:
-            return jsonify({"success": True, "message": "Already a member"}), 
+            return jsonify({"success": True, "message": "Already a member"}), 400
 
         # ✅ Check if already pending
         pending_check = supabase.table("join_request") \

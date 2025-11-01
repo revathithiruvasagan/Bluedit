@@ -185,6 +185,9 @@ export const createCommunity = async (name, userId) => {
   }
 };
 
+
+
+
 // ✅ Admin auto-join
 export const joinAsAdmin = async (communityId, userId) => {
   try {
@@ -213,46 +216,4 @@ export const sendJoinRequest = async (communityId, userId) => {
   }
 };
 
-export const getCommunityRequests = async (communityId, adminId) => {
-  try {
-    const res = await axios.get(
-      `${API_BASE_URL}/communities/${communityId}/requests`,
-      { params: { admin_id: adminId } }
-    );
-    return res.data;
-  } catch (err) {
-    console.error("Fetch requests error:", err);
-    return [];
-  }
-};
 
-// ✅ Admin handles request Approval/Reject
-export const handleRequest = async (
-  communityId,
-  requestId,
-  adminId,
-  action
-) => {
-  try {
-    const res = await axios.post(
-      `${API_BASE_URL}/communities/${communityId}/requests/${requestId}`,
-      { admin_id: adminId, action }
-    );
-    return res.data;
-  } catch (err) {
-    console.error("Handle request error:", err);
-    return { success: false };
-  }
-};
-
-//Check member status
-export const checkMemberStatus = async (communityId, userId) => {
-  try {
-    const res = await axios.get(
-      `${API_BASE_URL}/communities/${communityId}/member/${userId}`
-    );
-    return res.data.status; // pending | approved | none
-  } catch (error) {
-    return "none";
-  }
-};

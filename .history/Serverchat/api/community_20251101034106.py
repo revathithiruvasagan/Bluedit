@@ -298,8 +298,6 @@ def get_messages(room):
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-
-
 # ✅ Send Join Request
 @community_bp.route("/communities/<community_id>/join_request", methods=["POST"])
 def join_request(community_id):
@@ -311,32 +309,20 @@ def join_request(community_id):
 
     try:
         # Check if already member
-        member_check = supabase.table("community_members") \
-            .select("*") \
-            .eq("community_id", community_id) \
-            .eq("user_id", user_id) \
+        member_check = supabase.table("community_members")\
+            .select("*")\
+            .eq("community_id", community_id)\
+            .eq("user_id", user_id)\
             .execute()
 
         if member_check.data:
-            return jsonify({"success": True, "message": "Already a member"}), 
+            return jsonify({"success": False, "message": "Already a member"}), 400
 
-        # ✅ Check if already pending
-        pending_check = supabase.table("join_request") \
-            .select("*") \
-            .eq("community_id", community_id) \
-            .eq("user_id", user_id) \
-            .eq("status", "pending") \
-            .execute()
-
-        if pending_check.data:
-            return jsonify({"success": False, "message": "Request already pending"}), 400
-
-        # ✅ Add a new request
+        # ✅ Add request row
         supabase.table("join_request").insert({
             "community_id": community_id,
             "user_id": user_id,
-            "status": "pending",
-            "requested_at": "now()"  # ✅ auto timestamp
+            "status": "pending"
         }).execute()
 
         return jsonify({"success": True, "message": "Join request sent!"}), 201
@@ -345,7 +331,9 @@ def join_request(community_id):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-# ✅ Fetch join requests — Admin only
+community_bp = Blueprint("community", __name__)
+
+# ✅ Get pending join requests — Admin only
 @community_bp.route("/communities/<community_id>/requests", methods=["GET"])
 def get_join_requests(community_id):
     admin_id = request.args.get("admin_id")
@@ -354,43 +342,48 @@ def get_join_requests(community_id):
         return jsonify({"success": False, "message": "Missing admin_id"}), 400
 
     try:
-        # ✅ Verify admin
-        admin_check = supabase.table("community_members") \
+        # ✅ Check admin role
+        role_check = supabase.table("community_members") \
             .select("role") \
             .eq("community_id", community_id) \
             .eq("user_id", admin_id) \
             .execute()
 
-        if not admin_check.data or admin_check.data[0]["role"] != "admin":
+        if not role_check.data or role_check.data[0]["role"] != "admin":
             return jsonify({"success": False, "message": "Not authorized"}), 403
 
-        # ✅ Fetch pending requests
+        # ✅ Get pending requests
         requests_data = supabase.table("join_request") \
             .select("*") \
             .eq("community_id", community_id) \
             .eq("status", "pending") \
             .execute()
 
-        requests = requests_data.data or []
+        join_requests = requests_data.data or []
 
-        if not requests:
-            return jsonify({"success": True, "requests": []}), 200
+        # ✅ Fetch usernames for each user
+        user_ids = list(set(req["user_id"] for req in join_requests if req.get("user_id")))
 
-        # ✅ Fetch usernames map
-        user_ids = [req["user_id"] for req in requests]
-        users_resp = supabase.table("users").select("id, username").in_("id", user_ids).execute()
-        users_map = {u["id"]: u["username"] for u in users_resp.data}
+        users_map = {}
+        if user_ids:
+            users_resp = supabase.table("users") \
+                .select("id, username") \
+                .in_("id", user_ids) \
+                .execute()
 
-        for req in requests:
+            users_map = {user["id"]: user["username"] for user in users_resp.data}
+
+        # ✅ Attach username
+        for req in join_requests:
             req["username"] = users_map.get(req["user_id"], "Unknown")
 
-        return jsonify({"success": True, "requests": requests}), 200
+        return jsonify({"success": True, "requests": join_requests}), 200
 
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-# ✅ Approve / Reject Join Request
+# ✅ Approve / Reject Join request
 @community_bp.route("/communities/<community_id>/requests/<request_id>", methods=["POST"])
 def handle_join_request(community_id, request_id):
     data = request.get_json()
@@ -401,80 +394,49 @@ def handle_join_request(community_id, request_id):
         return jsonify({"success": False, "message": "Missing fields"}), 400
 
     try:
-        # ✅ Verify admin
-        admin_check = supabase.table("community_members") \
+        # ✅ Check if sender is admin
+        role_check = supabase.table("community_members") \
             .select("role") \
             .eq("community_id", community_id) \
             .eq("user_id", admin_id) \
             .execute()
 
-        if not admin_check.data or admin_check.data[0]["role"] != "admin":
+        if not role_check.data or role_check.data[0]["role"] != "admin":
             return jsonify({"success": False, "message": "Not authorized"}), 403
 
-        # ✅ Get user from request ID
-        req_data = supabase.table("join_request").select("*").eq("id", request_id).single().execute()
-        if not req_data.data:
+        # ✅ Fetch the request to find user ID
+        req_resp = supabase.table("join_request") \
+            .select("*") \
+            .eq("id", request_id) \
+            .execute()
+
+        if not req_resp.data:
             return jsonify({"success": False, "message": "Request not found"}), 404
 
-        user_id = req_data.data["user_id"]
+        request_data = req_resp.data[0]
+        user_id = request_data["user_id"]
+
+        # ✅ Perform action
         status = "approved" if action == "approve" else "rejected"
 
-        # ✅ Update handled timestamp using Postgres NOW()
+        # ✅ Update join_request status
         supabase.table("join_request") \
             .update({
                 "status": status,
-                "handled_at": "now()"
+                "handled_at": datetime.utcnow().isoformat()
             }) \
             .eq("id", request_id) \
             .execute()
 
-        # ✅ Add to members if approved & not already there
+        # ✅ If approved → add user to community_members
         if status == "approved":
-            exists = supabase.table("community_members") \
-                .select("*") \
-                .eq("community_id", community_id) \
-                .eq("user_id", user_id) \
-                .execute()
-
-            if not exists.data:
-                supabase.table("community_members").insert({
-                    "community_id": community_id,
-                    "user_id": user_id,
-                    "role": "member"
-                }).execute()
+            supabase.table("community_members").insert({
+                "community_id": community_id,
+                "user_id": user_id,
+                "role": "member"
+            }).execute()
 
         return jsonify({"success": True, "message": f"Request {status}!"}), 200
 
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
-
-# ✅ Check Member Status
-@community_bp.route("/communities/<community_id>/member/<user_id>", methods=["GET"])
-def check_member_status(community_id, user_id):
-    try:
-        # ✅ Already a member?
-        member = supabase.table("community_members") \
-            .select("id") \
-            .eq("community_id", community_id) \
-            .eq("user_id", user_id) \
-            .execute()
-
-        if member.data:
-            return jsonify({"status": "approved"}), 200
-
-        # ✅ Pending join request?
-        req = supabase.table("join_request") \
-            .select("id") \
-            .eq("community_id", community_id) \
-            .eq("user_id", user_id) \
-            .eq("status", "pending") \
-            .execute()
-
-        if req.data:
-            return jsonify({"status": "pending"}), 200
-
-        # ✅ No membership record
-        return jsonify({"status": "none"}), 200
-
-    except Exception as e:
-        return jsonify({"status": "none", "error": str(e)}), 500

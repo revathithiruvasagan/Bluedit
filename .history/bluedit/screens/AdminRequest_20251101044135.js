@@ -1,13 +1,6 @@
 import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-} from "react-native";
-import { getCommunityRequests, handleRequest } from "../services/api";
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { getCommunityRequests, handleRequest } from "../api";
 
 export default function AdminRequestsScreen({ route, navigation }) {
   const { communityId, adminId } = route.params;

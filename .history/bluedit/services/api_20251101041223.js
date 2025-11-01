@@ -245,7 +245,7 @@ export const handleRequest = async (
   }
 };
 
-//Check member status
+//Check member status 
 export const checkMemberStatus = async (communityId, userId) => {
   try {
     const res = await axios.get(

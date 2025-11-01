@@ -298,6 +298,9 @@ def get_messages(room):
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
+from flask import request, jsonify
+from datetime import datetime
+from . import supabase
 
 
 # ✅ Send Join Request
@@ -318,7 +321,7 @@ def join_request(community_id):
             .execute()
 
         if member_check.data:
-            return jsonify({"success": True, "message": "Already a member"}), 
+            return jsonify({"success": False, "message": "Already a member"}), 400
 
         # ✅ Check if already pending
         pending_check = supabase.table("join_request") \
@@ -447,34 +450,3 @@ def handle_join_request(community_id, request_id):
 
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
-
-# ✅ Check Member Status
-@community_bp.route("/communities/<community_id>/member/<user_id>", methods=["GET"])
-def check_member_status(community_id, user_id):
-    try:
-        # ✅ Already a member?
-        member = supabase.table("community_members") \
-            .select("id") \
-            .eq("community_id", community_id) \
-            .eq("user_id", user_id) \
-            .execute()
-
-        if member.data:
-            return jsonify({"status": "approved"}), 200
-
-        # ✅ Pending join request?
-        req = supabase.table("join_request") \
-            .select("id") \
-            .eq("community_id", community_id) \
-            .eq("user_id", user_id) \
-            .eq("status", "pending") \
-            .execute()
-
-        if req.data:
-            return jsonify({"status": "pending"}), 200
-
-        # ✅ No membership record
-        return jsonify({"status": "none"}), 200
-
-    except Exception as e:
-        return jsonify({"status": "none", "error": str(e)}), 500

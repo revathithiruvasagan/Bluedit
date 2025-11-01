@@ -5,7 +5,7 @@ import { NotificationProvider } from "./components/Notification";
 import LoginScreen from "./screens/Login";
 import CommunityScreen from "./screens/CommunityScreen";
 import ChatScreen from "./screens/Chat";
-import AdminRequestsScreen from "./screens/AdminRequest"; // <-- import
+//import AdminRequestsScreen from "./screens/AdminRequestsScreen"; // <-- import
 
 const Stack = createNativeStackNavigator();
 

@@ -244,15 +244,3 @@ export const handleRequest = async (
     return { success: false };
   }
 };
-
-//Check member status
-export const checkMemberStatus = async (communityId, userId) => {
-  try {
-    const res = await axios.get(
-      `${API_BASE_URL}/communities/${communityId}/member/${userId}`
-    );
-    return res.data.status; // pending | approved | none
-  } catch (error) {
-    return "none";
-  }
-};

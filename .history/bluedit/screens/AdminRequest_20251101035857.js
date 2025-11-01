@@ -7,7 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from "react-native";
-import { getCommunityRequests, handleRequest } from "../services/api";
+import { getCommunityRequests, handleRequest } from "../services";
 
 export default function AdminRequestsScreen({ route, navigation }) {
   const { communityId, adminId } = route.params;

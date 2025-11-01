@@ -173,128 +173,162 @@
 //   },
 // });
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
-  TextInput,
-  FlatList,
   Text,
-  KeyboardAvoidingView,
-  Platform,
+  FlatList,
   TouchableOpacity,
+  ActivityIndicator,
   StyleSheet,
-  Alert,
 } from "react-native";
 import {
-  sendMessage as apiSendMessage,
-  getMessages,
-  joinAsAdmin,
+  getCommunities,
+  sendJoinRequest,
   checkMemberStatus,
 } from "../services/api";
 
-export default function ChatScreen({ route, navigation }) {
-  const { community, user } = route.params;
-  const { id: userId, username } = user;
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState([]);
-  const flatListRef = useRef(null);
+export default function CommunityScreen({ navigation, route }) {
+  const { username, userId } = route.params;
+  const [loading, setLoading] = useState(true);
+  const [communities, setCommunities] = useState([]);
 
   useEffect(() => {
-    const initChat = async () => {
-      const status = await checkMemberStatus(community.id, userId);
-
-      if (community.created_by === userId) {
-        await joinAsAdmin(community.id, userId);
-      } else if (status === "pending") {
-        Alert.alert("⏳ Pending Approval", "You cannot chat yet.");
-        return navigation.goBack();
-      } else if (status !== "approved") {
-        Alert.alert("❌ Not a member", "Request to join first.");
-        return navigation.goBack();
-      }
-
-      const response = await getMessages(community.id);
-      setMessages(response.messages ?? []);
-    };
-
-    initChat();
+    loadCommunities();
   }, []);
 
-  const sendMessage = async () => {
-    if (!message.trim()) return;
-    const content = message;
-    setMessage("");
+  const loadCommunities = async () => {
+    setLoading(true);
+    const data = await getCommunities();
 
-    const localMsg = {
-      id: Date.now().toString(),
-      text: content,
-      sender: username,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, localMsg]);
+    // ✅ Check membership status for each community
+    const updated = await Promise.all(
+      data.map(async (com) => {
+        const status = await checkMemberStatus(com.id, userId);
+        return { ...com, memberStatus: status };
+      })
+    );
 
-    await apiSendMessage({
-      room: community.id,
-      user_id: userId,
-      content,
-    });
+    setCommunities(updated);
+    setLoading(false);
+  };
 
-    setMessages((await getMessages(community.id)).messages);
+const handleJoinClick = async (community) => {
+  try {
+    const res = await sendJoinRequest(community.id, userId);
+
+    // ✅ If already a member → Open Chat Immediately
+    if (res.message === "Already a member") {
+      navigation.navigate("ChatScreen", {
+        community,
+        username,
+        userId,
+        created_by: community.user_id,
+      });
+      return;
+    }
+
+    // ✅ If already pending → Show pending state
+    if (res.message === "Request already pending") {
+      alert("⏳ Request Pending Approval");
+      await loadCommunities();
+      return;
+    }
+
+    // ✅ When a brand-new join request is sent
+    if (res.success && res.message === "Join request sent") {
+      alert("✅ Join request sent!");
+      await loadCommunities();
+      return;
+    }
+
+    // ❌ Any unexpected case
+    alert(res.message || "Something went wrong");
+  } catch (e) {
+    console.log(e);
+    alert("Something went wrong");
+  }
+};
+
+
+  const renderCommunity = ({ item }) => {
+    const isAdmin = item.user_id === userId;
+
+    return (
+      <View style={styles.card}>
+        <Text style={styles.title}>{item.name}</Text>
+
+        {/* ✅ Action Buttons */}
+        {isAdmin || item.memberStatus === "approved" ? (
+          <TouchableOpacity
+            style={styles.chatButton}
+            onPress={() =>
+              navigation.navigate("ChatScreen", {
+                community: item,
+                username,
+                userId,
+                created_by: item.user_id,
+              })
+            }
+          >
+            <Text style={styles.chatText}>Open Chat</Text>
+          </TouchableOpacity>
+        ) : item.memberStatus === "pending" ? (
+          <View style={styles.pendingBox}>
+            <Text style={styles.pendingText}>⏳ Waiting Approval</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.joinButton}
+            onPress={() => handleJoinClick(item)}
+          >
+            <Text style={styles.joinText}>Join Request</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <Text style={styles.header}>{community.name}</Text>
-
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.messageBubble,
-              item.sender === username ? styles.me : styles.them,
-            ]}
-          >
-            <Text style={styles.text}>{item.text}</Text>
-          </View>
-        )}
-      />
-
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Type message..."
-          value={message}
-          onChangeText={setMessage}
+    <View style={styles.container}>
+      {loading ? (
+        <ActivityIndicator size="large" style={{ marginTop: 20 }} />
+      ) : (
+        <FlatList
+          data={communities}
+          keyExtractor={(item) => item.id}
+          renderItem={renderCommunity}
         />
-        <TouchableOpacity style={styles.send} onPress={sendMessage}>
-          <Text style={{ color: "#fff" }}>Send</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10 },
-  header: { fontSize: 20, fontWeight: "bold", textAlign: "center" },
-  messageBubble: { padding: 10, marginVertical: 4, borderRadius: 10 },
-  me: { backgroundColor: "#007bff", alignSelf: "flex-end" },
-  them: { backgroundColor: "#aaa", alignSelf: "flex-start" },
-  text: { color: "#fff" },
-  inputRow: { flexDirection: "row", alignItems: "center" },
-  input: {
-    flex: 1,
-    borderColor: "#ccc",
-    borderWidth: 1,
-    padding: 10,
-    borderRadius: 20,
-    marginRight: 10,
+  container: { flex: 1, padding: 15, backgroundColor: "#fff" },
+  card: {
+    backgroundColor: "#f2f2f2",
+    padding: 15,
+    marginVertical: 8,
+    borderRadius: 12,
   },
-  send: { backgroundColor: "blue", padding: 12, borderRadius: 20 },
+  title: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
+  joinButton: {
+    backgroundColor: "#0066ff",
+    padding: 10,
+    borderRadius: 8,
+  },
+  joinText: { color: "#fff", fontWeight: "600", textAlign: "center" },
+  pendingBox: {
+    padding: 10,
+    backgroundColor: "#ffa500",
+    borderRadius: 8,
+  },
+  pendingText: { fontWeight: "600", textAlign: "center", color: "#fff" },
+  chatButton: {
+    backgroundColor: "#22a122",
+    padding: 10,
+    borderRadius: 8,
+  },
+  chatText: { color: "#fff", fontWeight: "600", textAlign: "center" },
 });
