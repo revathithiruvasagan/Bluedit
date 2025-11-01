@@ -1,0 +1,686 @@
+# # from flask import Blueprint, request, jsonify
+# # from supabaseclient import supabase
+# # import uuid
+
+# # community_bp = Blueprint("community", __name__)
+
+# # # Fetch all communities
+# # @community_bp.route("/communities", methods=["GET"])
+# # def get_communities():
+# #     try:
+# #         result = supabase.table("communities").select("*").execute()
+# #         communities = result.data or []
+# #         return jsonify({"communities": communities})
+# #     except Exception as e:
+# #         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # # Create a new community
+# # @community_bp.route("/communities", methods=["POST"])
+# # def create_community():
+# #     data = request.get_json()
+# #     name = data.get("name")
+# #     user_id = data.get("user_id")  # creator ID
+
+# #     if not name or not user_id:
+# #         return jsonify({"success": False, "message": "Missing fields"}), 400
+
+# #     try:
+# #         new_id = str(uuid.uuid4())
+# #         supabase.table("communities").insert({
+# #             "id": new_id,
+# #             "name": name,
+# #             "created_by": user_id
+# #         }).execute()
+
+# #         # Best-effort: add the creator as a member with role 'admin' and update their global role
+# #         warnings = []
+# #         member = None
+# #         try:
+# #             member = {
+# #                 "id": str(uuid.uuid4()),
+# #                 "community_id": new_id,
+# #                 "user_id": user_id,
+# #                 "role": "admin"
+# #             }
+# #             supabase.table("community_members").insert(member).execute()
+# #         except Exception as me:
+# #             warnings.append(f"Failed to add creator to community_members: {str(me)}")
+
+# #         # Update user's global role to 'admin' (non-fatal)
+# #         try:
+# #             supabase.table("users").update({"role": "admin"}).eq("id", user_id).execute()
+# #         except Exception as ure:
+# #             warnings.append(f"Failed to update user's role: {str(ure)}")
+
+# #         response = {"success": True, "community": {"id": new_id, "name": name}}
+# #         if member:
+# #             response["member"] = member
+# #         if warnings:
+# #             response["warnings"] = warnings
+
+# #         return jsonify(response), 201
+# #     except Exception as e:
+# #         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # # Send a message to a community (store in DB)
+# # @community_bp.route("/send_message", methods=["POST"])
+# # def send_message():
+# #     data = request.get_json() or {}
+# #     room = data.get("room")  # can be community id or name
+# #     username = data.get("username")
+# #     content = data.get("content")
+# #     user_id = data.get("user_id")
+
+# #     if not room or not content:
+# #         return jsonify({"success": False, "message": "Missing room or content"}), 400
+
+# #     try:
+# #         # Resolve community id by id first, then by name
+# #         community_resp = supabase.table("communities").select("*").eq("id", room).execute()
+# #         community = (community_resp.data or [])
+# #         if not community:
+# #             community_resp = supabase.table("communities").select("*").eq("name", room).execute()
+# #             community = (community_resp.data or [])
+
+# #         if not community:
+# #             return jsonify({"success": False, "message": "Community not found"}), 404
+
+# #         community_id = community[0]["id"]
+
+# #         # Resolve sender id if username provided and user_id not given
+# #         sender_id = None
+# #         if user_id:
+# #             sender_id = user_id
+# #         elif username:
+# #             uresp = supabase.table("users").select("*").eq("username", username).execute()
+# #             users = uresp.data or []
+# #             if users:
+# #                 sender_id = users[0].get("id")
+
+# #         new_id = str(uuid.uuid4())
+# #         record = {
+# #             "id": new_id,
+# #             "community_id": community_id,
+# #             "sender_id": sender_id,
+# #             "message": content
+# #         }
+
+# #         supabase.table("community_messages").insert(record).execute()
+
+# #         return jsonify({"success": True, "message": record}), 201
+# #     except Exception as e:
+# #         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # # Get messages for a community (by id or name)
+# # @community_bp.route("/get_messages/<room>", methods=["GET"])
+# # def get_messages(room):
+# #     try:
+# #         # Resolve community id
+# #         community_resp = supabase.table("communities").select("*").eq("id", room).execute()
+# #         community = (community_resp.data or [])
+# #         if not community:
+# #             community_resp = supabase.table("communities").select("*").eq("name", room).execute()
+# #             community = (community_resp.data or [])
+
+# #         if not community:
+# #             return jsonify({"success": False, "message": "Community not found"}), 404
+
+# #         community_id = community[0]["id"]
+
+# #         # Fetch messages ordered by created_at asc
+# #         resp = supabase.table("community_messages").select("*")\
+# #             .eq("community_id", community_id).order("created_at", asc=True).execute()
+# #         msgs = resp.data or []
+
+# #         # Collect sender_ids and batch fetch usernames
+# #         sender_ids = list({m.get("sender_id") for m in msgs if m.get("sender_id")})
+# #         users_map = {}
+# #         if sender_ids:
+# #             uresp = supabase.table("users").select("id,username").in_("id", tuple(sender_ids)).execute()
+# #             users = uresp.data or []
+# #             users_map = {u["id"]: u.get("username") for u in users}
+
+# #         out = []
+# #         for m in msgs:
+# #             out.append({
+# #                 "id": m.get("id"),
+# #                 "text": m.get("message"),
+# #                 "sender_id": m.get("sender_id"),
+# #                 "sender": users_map.get(m.get("sender_id")) if m.get("sender_id") else None,
+# #                 "timestamp": m.get("created_at")
+# #             })
+
+# #         return jsonify({"messages": out})
+# #     except Exception as e:
+# #         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# from flask import Blueprint, request, jsonify
+# from supabaseclient import supabase
+
+# community_bp = Blueprint("community", __name__)
+
+# # ✅ Fetch all communities
+# @community_bp.route("/communities", methods=["GET"])
+# def get_communities():
+#     try:
+#         result = supabase.table("communities").select("*").execute()
+#         communities = result.data or []
+#         return jsonify({"communities": communities})
+#     except Exception as e:
+#         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # ✅ Create a new community + auto make creator admin member
+# @community_bp.route("/communities", methods=["POST"])
+# def create_community():
+#     data = request.get_json()
+#     name = data.get("name")
+#     user_id = data.get("user_id")
+
+#     if not name or not user_id:
+#         return jsonify({"success": False, "message": "Missing fields"}), 400
+
+#     try:
+#         # Insert & let Supabase auto-create UUID
+#         result = supabase.table("communities").insert({
+#             "name": name,
+#             "created_by": user_id
+#         }).execute()
+
+#         community = result.data[0]
+#         community_id = community["id"]
+
+#         # ✅ Create admin membership
+#         supabase.table("community_members").insert({
+#             "community_id": community_id,
+#             "user_id": user_id,
+#             "role": "admin"
+#         }).execute()
+
+#         return jsonify({
+#             "success": True,
+#             "community": community,
+#             "role": "admin"
+#         }), 201
+
+#     except Exception as e:
+#         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # ✅ Send message to community
+# @community_bp.route("/send_message", methods=["POST"])
+# def send_message():
+#     data = request.get_json() or {}
+#     room = data.get("room")
+#     content = data.get("content")
+#     user_id = data.get("user_id")
+
+#     if not room or not content:
+#         return jsonify({"success": False, "message": "Missing fields"}), 400
+
+#     try:
+#         # Resolve community by id first, then name
+#         community_resp = supabase.table("communities").select("*").eq("id", room).execute()
+#         community = community_resp.data
+
+#         if not community:
+#             community_resp = supabase.table("communities").select("*").eq("name", room).execute()
+#             community = community_resp.data
+
+#         if not community:
+#             return jsonify({"success": False, "message": "Community not found"}), 404
+
+#         community_id = community[0]["id"]
+
+#         # ✅ Insert without manually creating ID — DB does it
+#         record = {
+#             "community_id": community_id,
+#             "sender_id": user_id,
+#             "message": content
+#         }
+
+#         inserted = supabase.table("community_messages").insert(record).execute()
+#         return jsonify({"success": True, "message": inserted.data[0]}), 201
+
+#     except Exception as e:
+#         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # ✅ Get message history for community
+# @community_bp.route("/get_messages/<room>", methods=["GET"])
+# def get_messages(room):
+#     try:
+#         community_resp = supabase.table("communities").select("*").eq("id", room).execute()
+#         community = community_resp.data
+
+#         if not community:
+#             community_resp = supabase.table("communities").select("*").eq("name", room).execute()
+#             community = community_resp.data
+
+#         if not community:
+#             return jsonify({"success": False, "message": "Community not found"}), 404
+
+#         community_id = community[0]["id"]
+
+#         # ✅ Ordered messages
+#         resp = supabase.table("community_messages")\
+#             .select("*")\
+#             .eq("community_id", community_id)\
+#             .order("created_at")\
+#             .execute()
+
+#         msgs = resp.data or []
+
+#         # ✅ Map sender usernames
+#         sender_ids = list({m.get("sender_id") for m in msgs if m.get("sender_id")})
+
+#         users_map = {}
+#         if sender_ids:
+#             uresp = supabase.table("users").select("id,username").in_("id", sender_ids).execute()
+#             users_map = {u["id"]: u["username"] for u in (uresp.data or [])}
+
+#         out = []
+#         for m in msgs:
+#             out.append({
+#                 "id": m.get("id"),
+#                 "text": m.get("message"),
+#                 "sender_id": m.get("sender_id"),
+#                 "sender": users_map.get(m.get("sender_id")),
+#                 "timestamp": m.get("created_at")
+#             })
+
+#         return jsonify({"messages": out}), 200
+
+#     except Exception as e:
+#         return jsonify({"success": False, "message": str(e)}), 500
+
+
+
+# # ✅ Send Join Request
+# @community_bp.route("/communities/<community_id>/join_request", methods=["POST"])
+# def join_request(community_id):
+#     data = request.get_json()
+#     user_id = data.get("user_id")
+
+#     if not user_id:
+#         return jsonify({"success": False, "message": "User ID missing"}), 400
+
+#     try:
+#         # Check if already member
+#         member_check = supabase.table("community_members") \
+#             .select("*") \
+#             .eq("community_id", community_id) \
+#             .eq("user_id", user_id) \
+#             .execute()
+
+#         if member_check.data:
+#             return jsonify({"success": True, "message": "Already a member"}), 
+
+#         # ✅ Check if already pending
+#         pending_check = supabase.table("join_request") \
+#             .select("*") \
+#             .eq("community_id", community_id) \
+#             .eq("user_id", user_id) \
+#             .eq("status", "pending") \
+#             .execute()
+
+#         if pending_check.data:
+#             return jsonify({"success": False, "message": "Request already pending"}), 400
+
+#         # ✅ Add a new request
+#         supabase.table("join_request").insert({
+#             "community_id": community_id,
+#             "user_id": user_id,
+#             "status": "pending",
+#             "requested_at": "now()"  # ✅ auto timestamp
+#         }).execute()
+
+#         return jsonify({"success": True, "message": "Join request sent!"}), 201
+
+#     except Exception as e:
+#         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # ✅ Fetch join requests — Admin only
+# @community_bp.route("/communities/<community_id>/requests", methods=["GET"])
+# def get_join_requests(community_id):
+#     admin_id = request.args.get("admin_id")
+
+#     if not admin_id:
+#         return jsonify({"success": False, "message": "Missing admin_id"}), 400
+
+#     try:
+#         # ✅ Verify admin
+#         admin_check = supabase.table("community_members") \
+#             .select("role") \
+#             .eq("community_id", community_id) \
+#             .eq("user_id", admin_id) \
+#             .execute()
+
+#         if not admin_check.data or admin_check.data[0]["role"] != "admin":
+#             return jsonify({"success": False, "message": "Not authorized"}), 403
+
+#         # ✅ Fetch pending requests
+#         requests_data = supabase.table("join_request") \
+#             .select("*") \
+#             .eq("community_id", community_id) \
+#             .eq("status", "pending") \
+#             .execute()
+
+#         requests = requests_data.data or []
+
+#         if not requests:
+#             return jsonify({"success": True, "requests": []}), 200
+
+#         # ✅ Fetch usernames map
+#         user_ids = [req["user_id"] for req in requests]
+#         users_resp = supabase.table("users").select("id, username").in_("id", user_ids).execute()
+#         users_map = {u["id"]: u["username"] for u in users_resp.data}
+
+#         for req in requests:
+#             req["username"] = users_map.get(req["user_id"], "Unknown")
+
+#         return jsonify({"success": True, "requests": requests}), 200
+
+#     except Exception as e:
+#         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# # ✅ Approve / Reject Join Request
+# @community_bp.route("/communities/<community_id>/requests/<request_id>", methods=["POST"])
+# def handle_join_request(community_id, request_id):
+#     data = request.get_json()
+#     admin_id = data.get("admin_id")
+#     action = data.get("action")  # approve | reject
+
+#     if not admin_id or not action:
+#         return jsonify({"success": False, "message": "Missing fields"}), 400
+
+#     try:
+#         # ✅ Verify admin
+#         admin_check = supabase.table("community_members") \
+#             .select("role") \
+#             .eq("community_id", community_id) \
+#             .eq("user_id", admin_id) \
+#             .execute()
+
+#         if not admin_check.data or admin_check.data[0]["role"] != "admin":
+#             return jsonify({"success": False, "message": "Not authorized"}), 403
+
+#         # ✅ Get user from request ID
+#         req_data = supabase.table("join_request").select("*").eq("id", request_id).single().execute()
+#         if not req_data.data:
+#             return jsonify({"success": False, "message": "Request not found"}), 404
+
+#         user_id = req_data.data["user_id"]
+#         status = "approved" if action == "approve" else "rejected"
+
+#         # ✅ Update handled timestamp using Postgres NOW()
+#         supabase.table("join_request") \
+#             .update({
+#                 "status": status,
+#                 "handled_at": "now()"
+#             }) \
+#             .eq("id", request_id) \
+#             .execute()
+
+#         # ✅ Add to members if approved & not already there
+#         if status == "approved":
+#             exists = supabase.table("community_members") \
+#                 .select("*") \
+#                 .eq("community_id", community_id) \
+#                 .eq("user_id", user_id) \
+#                 .execute()
+
+#             if not exists.data:
+#                 supabase.table("community_members").insert({
+#                     "community_id": community_id,
+#                     "user_id": user_id,
+#                     "role": "member"
+#                 }).execute()
+
+#         return jsonify({"success": True, "message": f"Request {status}!"}), 200
+
+#     except Exception as e:
+#         return jsonify({"success": False, "message": str(e)}), 500
+
+# # ✅ Check Member Status
+# @community_bp.route("/communities/<community_id>/member/<user_id>", methods=["GET"])
+# def check_member_status(community_id, user_id):
+#     try:
+#         # ✅ Already a member?
+#         member = supabase.table("community_members") \
+#             .select("id") \
+#             .eq("community_id", community_id) \
+#             .eq("user_id", user_id) \
+#             .execute()
+
+#         if member.data:
+#             return jsonify({"status": "approved"}), 200
+
+#         # ✅ Pending join request?
+#         req = supabase.table("join_request") \
+#             .select("id") \
+#             .eq("community_id", community_id) \
+#             .eq("user_id", user_id) \
+#             .eq("status", "pending") \
+#             .execute()
+
+#         if req.data:
+#             return jsonify({"status": "pending"}), 200
+
+#         # ✅ No membership record
+#         return jsonify({"status": "none"}), 200
+
+#     except Exception as e:
+#         return jsonify({"status": "none", "error": str(e)}), 500
+
+
+from flask import Blueprint, request, jsonify
+from flask_socketio import SocketIO, emit, join_room, leave_room
+from supabaseclient import supabase
+import datetime
+
+community_bp = Blueprint("community", __name__)
+socketio = SocketIO(cors_allowed_origins="*")
+
+
+# ✅ Fetch all communities
+@community_bp.route("/communities", methods=["GET"])
+def get_communities():
+    try:
+        result = supabase.table("communities").select("*").execute()
+        return jsonify({"communities": result.data}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ✅ Create community & Auto make creator admin
+@community_bp.route("/communities", methods=["POST"])
+def create_community():
+    data = request.json
+    name = data.get("name")
+    user_id = data.get("user_id")
+
+    if not name or not user_id:
+        return jsonify({"success": False, "message": "Missing fields"}), 400
+    
+    try:
+        # ✅ Create community (UUID auto)
+        community_res = supabase.table("communities").insert({
+            "name": name,
+            "created_by": user_id
+        }).execute()
+
+        community = community_res.data[0]
+
+        # ✅ Add creator as admin member
+        supabase.table("community_members").insert({
+            "community_id": community["id"],
+            "user_id": user_id,
+            "role": "admin"
+        }).execute()
+
+        return jsonify({"success": True, "community": community}), 201
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ✅ WebSocket Event: Join a room
+@socketio.on("join_room")
+def handle_join_room(data):
+    room = data.get("room")
+    username = data.get("username")
+    join_room(room)
+
+    emit("user_joined", {"username": username}, room=room)
+
+
+# ✅ WebSocket Event: Leave room
+@socketio.on("leave_room")
+def handle_leave_room(data):
+    room = data.get("room")
+    username = data.get("username")
+    leave_room(room)
+
+    emit("user_left", {"username": username}, room=room)
+
+
+# ✅ WebSocket Event: Typing indicator
+@socketio.on("typing")
+def handle_typing(data):
+    emit("typing", data, room=data.get("room"), include_self=False)
+
+
+# ✅ WebSocket Event: Send message + Store in DB
+@socketio.on("send_message")
+def handle_send_message(data):
+    community_id = data.get("community_id")
+    user_id = data.get("user_id")
+    message = data.get("message")
+
+    if not community_id or not user_id or not message:
+        return
+
+    # ✅ Insert into DB with timestamp
+    res = supabase.table("community_messages").insert({
+        "community_id": community_id,
+        "sender_id": user_id,
+        "message": message
+    }).execute()
+
+    msg = res.data[0]
+    msg["timestamp"] = msg.get("created_at")
+
+    # ✅ Emit to only the community room
+    emit("new_message", msg, room=community_id)
+
+
+# ✅ GET Chat History
+@community_bp.route("/get_messages/<community_id>", methods=["GET"])
+def get_messages(community_id):
+    try:
+        res = supabase.table("community_messages") \
+            .select("*") \
+            .eq("community_id", community_id) \
+            .order("created_at") \
+            .execute()
+
+        return jsonify(res.data), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ✅ Send Join Request
+@community_bp.route("/communities/<community_id>/join_request", methods=["POST"])
+def join_request(community_id):
+    user_id = request.json.get("user_id")
+
+    # ✅ Already a member?
+    check_member = supabase.table("community_members") \
+        .select("*") \
+        .eq("community_id", community_id) \
+        .eq("user_id", user_id) \
+        .execute()
+
+    if check_member.data:
+        return jsonify({"success": True, "message": "Already a member"}), 200
+
+    # ✅ Check Pending
+    check_pending = supabase.table("join_request") \
+        .select("*") \
+        .eq("community_id", community_id) \
+        .eq("user_id", user_id) \
+        .eq("status", "pending") \
+        .execute()
+
+    if check_pending.data:
+        return jsonify({"success": False, "message": "Request already pending"}), 400
+
+    supabase.table("join_request").insert({
+        "community_id": community_id,
+        "user_id": user_id,
+        "status": "pending"
+    }).execute()
+
+    return jsonify({"success": True, "message": "Join request sent!"}), 201
+
+
+# ✅ Approve or Reject Join Request
+@community_bp.route("/communities/<community_id>/requests/<request_id>", methods=["POST"])
+def handle_join_request(community_id, request_id):
+    data = request.json
+    action = data.get("action")  # approve | reject
+
+    result = supabase.table("join_request").select("*").eq("id", request_id).single().execute()
+    req = result.data
+
+    if not req:
+        return jsonify({"success": False, "message": "Request not found"}), 404
+
+    new_status = "approved" if action == "approve" else "rejected"
+
+    # ✅ Update Join Request Status
+    supabase.table("join_request") \
+        .update({"status": new_status}) \
+        .eq("id", request_id) \
+        .execute()
+
+    if new_status == "approved":
+        supabase.table("community_members").insert({
+            "community_id": community_id,
+            "user_id": req["user_id"],
+            "role": "member"
+        }).execute()
+
+    return jsonify({"success": True, "message": f"Request {new_status}!"}), 200
+
+
+# ✅ Check Membership Status
+@community_bp.route("/communities/<community_id>/member/<user_id>", methods=["GET"])
+def check_member_status(community_id, user_id):
+    # Member check
+    member = supabase.table("community_members") \
+        .select("id") \
+        .eq("community_id", community_id) \
+        .eq("user_id", user_id) \
+        .execute()
+
+    if member.data:
+        return jsonify({"status": "approved"})
+
+    # Request pending?
+    req = supabase.table("join_request") \
+        .select("status") \
+        .eq("community_id", community_id) \
+        .eq("user_id", user_id) \
+        .execute()
+
+    if req.data:
+        return jsonify({"status": req.data[0]["status"]})
+
+    return jsonify({"status": "none"})
